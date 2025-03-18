@@ -4,6 +4,32 @@ from torch.nn import functional as F
 import tiktoken
 
 
+class ShakeSpeareLoader:
+    def __init__(self, B, T):
+        # data preparation
+        self.B = B
+        self.T = T
+
+        with open("input.txt", "r") as f:
+            text = f.read()
+
+        enc = tiktoken.get_encoding("gpt2")
+        tokens = enc.encode(text)
+        self.tokens = torch.tensor(tokens)
+        self.current_pos = 0
+
+    def next_batch(self):
+        buf = self.tokens[self.current_pos : self.current_pos + self.B * self.T + 1]
+        x = buf[:-1].view(self.B, self.T)
+        y = buf[1:].view(self.B, self.T)
+
+        self.current_pos += self.B * self.T
+        if self.current_pos + (self.B * self.T + 1) > len(self.tokens):
+            self.current_pos = 0
+
+        return x, y
+
+
 def inference(
     n_repeat: int = 5, max_length: int = 30, pretrained: bool = False, seed: int = 42
 ) -> None:
@@ -55,33 +81,23 @@ def forward() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"using device: {device}")
 
-    # data preparation
-    with open("input.txt", "r") as f:
-        text = f.read(512)
-
-    enc = tiktoken.get_encoding("gpt2")
-    tokens = enc.encode(text)
-
-    B, T = 4, 32
-    buf = torch.tensor(tokens[: B * T + 1])
-
-    x = buf[:-1].view(B, T).to(device)
-    target = buf[1:].view(B, T).to(device)
-
+    train_loader = ShakeSpeareLoader(B=4, T=32)
     # load the model
     model = GPT(Config())
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
-    epochs = 50
+    epochs = 100
     for epoch in range(epochs):
+        x, y = train_loader.next_batch()
+        x, y = x.to(device), y.to(device)
         # forward pass
         out = model(x)
 
         optimizer.zero_grad()
         # (N=B*T, Vocab size (# classes)) vs target (N,)
-        loss = F.cross_entropy(out.view(-1, out.size(-1)), target.flatten())
+        loss = F.cross_entropy(out.view(-1, out.size(-1)), y.flatten())
         loss.backward()
         optimizer.step()
 
