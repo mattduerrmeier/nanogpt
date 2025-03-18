@@ -4,7 +4,9 @@ from torch.nn import functional as F
 import tiktoken
 
 
-def inference(n_repeat: int = 5, max_length: int = 30, pretrained: bool = False, seed: int = 42) -> None:
+def inference(
+    n_repeat: int = 5, max_length: int = 30, pretrained: bool = False, seed: int = 42
+) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"using device: {device}")
 
@@ -50,5 +52,33 @@ def inference(n_repeat: int = 5, max_length: int = 30, pretrained: bool = False,
         print(decoded)
 
 
+def forward() -> None:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"using device: {device}")
+
+    # data preparation
+    with open("input.txt", "r") as f:
+        text = f.read(512)
+
+    enc = tiktoken.get_encoding("gpt2")
+    tokens = enc.encode(text)
+
+    B, T = 4, 32
+    buf = torch.tensor(tokens[: B * T + 1])
+
+    x = buf[:-1].view(B, T)
+    y = buf[1:].view(B, T)
+    print("Input shape: ", x.shape)
+    print("Target shape: ", y.shape)
+
+    # load the model
+    model = GPT(Config())
+    model.to(device)
+
+    # forward pass
+    out = model(x)
+    print("Logits shape: ", out.shape)
+
+
 if __name__ == "__main__":
-    inference()
+    forward()

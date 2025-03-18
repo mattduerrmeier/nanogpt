@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 # GPT-2 (124M) model from scratch, taken from Karpathy's NanoGPT.
 
+
 @dataclass
 class Config:
     block_size: int = 1024  # maximum sequence length
