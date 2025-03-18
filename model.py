@@ -23,6 +23,7 @@ class CausalSelfAttention(nn.Module):
 
         self.c_attn = nn.Linear(config.n_embeddings, 3 * config.n_embeddings)
         self.c_proj = nn.Linear(config.n_embeddings, config.n_embeddings)
+        self.c_proj.NANOGPT_SCALE_INIT = 1
         self.n_head = config.n_head
         self.n_embd = config.n_embeddings
 
@@ -107,6 +108,25 @@ class GPT(nn.Module):
             )
         )
         self.lm_head = nn.Linear(config.n_embeddings, config.vocab_size, bias=False)
+
+        # weight sharing between token embedding and output layer (saves a lot of params)
+        self.transformer.wte.weight = self.lm_head.weight
+
+        # initialize the weights like in the original GPT-2
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            std = 0.02
+            if hasattr(module, "NANOGPT_SCALE_INIT"):
+                std *= (2 * self.config.n_layer) ** -0.5
+
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx) -> torch.Tensor:
         # token idx (batch, sequence length)

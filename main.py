@@ -5,6 +5,7 @@ import tiktoken
 
 
 class ShakeSpeareLoader:
+    # TODO: as a custom dataset instead?
     def __init__(self, B, T):
         # data preparation
         self.B = B
@@ -55,7 +56,8 @@ def inference(
     x = tokens.to(device)
 
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
 
     while x.size(1) < max_length:
         with torch.no_grad():
@@ -77,32 +79,38 @@ def inference(
         print(decoded)
 
 
-def forward() -> None:
+def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"using device: {device}")
 
-    train_loader = ShakeSpeareLoader(B=4, T=32)
+    seed = 42
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+
+    train_loader = ShakeSpeareLoader(B=1, T=1024)
     # load the model
     model = GPT(Config())
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
-    epochs = 100
-    for epoch in range(epochs):
+    steps = 100
+    for step in range(steps):
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
-        # forward pass
+        # Forward Pass
         out = model(x)
 
+        # Backward Pass
         optimizer.zero_grad()
         # (N=B*T, Vocab size (# classes)) vs target (N,)
         loss = F.cross_entropy(out.view(-1, out.size(-1)), y.flatten())
         loss.backward()
         optimizer.step()
 
-        print(f"epoch: {epoch}, loss: {loss.item()}")
+        print(f"step: {step}, loss: {loss.item()}")
 
 
 if __name__ == "__main__":
-    forward()
+    main()
