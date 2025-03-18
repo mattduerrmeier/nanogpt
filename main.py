@@ -23,8 +23,7 @@ def inference(
     # the gpt-2 tokenizer (using OpenAI library)
     # compression ratio: 3 to 1 (1000 char -> 300 tokens)
     enc = tiktoken.get_encoding("gpt2")
-    tokens = enc.encode("Hello, I'm a language model,")
-    tokens = torch.tensor(tokens, dtype=torch.long)
+    tokens = torch.tensor(enc.encode("Hello, I'm a language model,"), dtype=torch.long)
     tokens = tokens.unsqueeze(0).repeat(n_repeat, 1)
 
     x = tokens.to(device)
@@ -47,7 +46,7 @@ def inference(
             x = torch.cat((x, xcol), dim=1)
 
     for i in range(n_repeat):
-        tokens = x[i, :max_length].tolist()
+        tokens: list[int] = x[i, :max_length].tolist()
         decoded = enc.decode(tokens)
         print(decoded)
 
@@ -66,18 +65,27 @@ def forward() -> None:
     B, T = 4, 32
     buf = torch.tensor(tokens[: B * T + 1])
 
-    x = buf[:-1].view(B, T)
-    y = buf[1:].view(B, T)
-    print("Input shape: ", x.shape)
-    print("Target shape: ", y.shape)
+    x = buf[:-1].view(B, T).to(device)
+    target = buf[1:].view(B, T).to(device)
 
     # load the model
     model = GPT(Config())
     model.to(device)
 
-    # forward pass
-    out = model(x)
-    print("Logits shape: ", out.shape)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+
+    epochs = 50
+    for epoch in range(epochs):
+        # forward pass
+        out = model(x)
+
+        optimizer.zero_grad()
+        # (N=B*T, Vocab size (# classes)) vs target (N,)
+        loss = F.cross_entropy(out.view(-1, out.size(-1)), target.flatten())
+        loss.backward()
+        optimizer.step()
+
+        print(f"epoch: {epoch}, loss: {loss.item()}")
 
 
 if __name__ == "__main__":

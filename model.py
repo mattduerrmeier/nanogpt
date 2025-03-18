@@ -85,7 +85,7 @@ class AttentionBlock(nn.Module):
         self.ln_2 = nn.LayerNorm(config.n_embeddings)
         self.mlp = MLP(config)
 
-    def forward(self, x) -> torch.tensor:
+    def forward(self, x) -> torch.Tensor:
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
