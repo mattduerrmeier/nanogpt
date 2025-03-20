@@ -2,6 +2,7 @@ from model import GPT, Config
 import torch
 from torch.nn import functional as F
 import tiktoken
+import time
 
 
 class ShakeSpeareLoader:
@@ -93,16 +94,18 @@ def main() -> None:
 
     # torch.set_float32_matmul_precision("high") #TF32 setting
     # load the model
-    model = GPT(Config())
+    # override the vocab size to the next power of 2
+    model = GPT(Config(vocab_size=50304))
     model.to(device)
 
     print("Compiling GPT-2...")
     model = torch.compile(model)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
 
     steps = 100
     for step in range(steps):
+        start_time = time.time()
         # Forward Pass
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
@@ -116,9 +119,15 @@ def main() -> None:
         # (N=B*T, Vocab size (# classes)) vs target (N,)
         loss = F.cross_entropy(out.view(-1, out.size(-1)), y.flatten())
         loss.backward()
+        # avoid shock from high gradients through clipping
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
-        print(f"step: {step}, loss: {loss.item()}")
+        torch.cuda.synchronize()
+        backward_time = time.time()
+
+        train_time = backward_time - start_time
+        print(f"step: {step:04d} | loss: {loss.item():.6f} | norm: {norm:.4f} | time: {1000*train_time:.4f}ms")
 
 
 if __name__ == "__main__":
