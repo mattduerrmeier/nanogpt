@@ -42,12 +42,16 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
 
-        attention = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        # apply the mask
-        attention = attention.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
-        attention = F.softmax(attention, dim=-1)
+        # normal attention computation
+        # attention = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        # # apply the mask
+        # attention = attention.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
+        # attention = F.softmax(attention, dim=-1)
+        # y = attention @ v
 
-        y = attention @ v
+        # flash attention
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.c_proj(y)
         return y
@@ -133,7 +137,7 @@ class GPT(nn.Module):
         B, T = idx.size()
         assert T <= self.config.block_size, "Problem with T: larger than block size"
 
-        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
+        pos = torch.arange(0, T, dtype=torch.int, device=idx.device)
         token_embeddings = self.transformer.wte(idx)
         position_embeddings = self.transformer.wpe(pos)
 
