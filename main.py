@@ -34,7 +34,7 @@ class ShakeSpeareLoader:
 def inference(
     n_repeat: int = 5, max_length: int = 30, pretrained: bool = False, seed: int = 42
 ) -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"using device: {device}")
 
     if pretrained:
@@ -50,7 +50,7 @@ def inference(
     # the gpt-2 tokenizer (using OpenAI library)
     # compression ratio: 3 to 1 (1000 char -> 300 tokens)
     enc = tiktoken.get_encoding("gpt2")
-    tokens = torch.tensor(enc.encode("Hello, I'm a language model,"), dtype=torch.long)
+    tokens = torch.tensor(enc.encode("Hello, I'm a language model,"), dtype=torch.int)
     tokens = tokens.unsqueeze(0).repeat(n_repeat, 1)
 
     x = tokens.to(device)
@@ -80,7 +80,7 @@ def inference(
 
 
 def main() -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"using device: {device}")
 
     seed = 42
@@ -88,18 +88,27 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
 
-    train_loader = ShakeSpeareLoader(B=1, T=1024)
+    # For final version: B = 16, T = 1024
+    train_loader = ShakeSpeareLoader(B=4, T=512)
+
+    # torch.set_float32_matmul_precision("high") #TF32 setting
     # load the model
     model = GPT(Config())
     model.to(device)
+
+    print("Compiling GPT-2...")
+    model = torch.compile(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
     steps = 100
     for step in range(steps):
+        # Forward Pass
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
-        # Forward Pass
+
+        # use autocast to use bfloat16 for fwd
+        # with torch.autocast(device_type=device, dtype=torch.bfloat16):
         out = model(x)
 
         # Backward Pass

@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-import math
 from dataclasses import dataclass
 
 # GPT-2 (124M) model from scratch, taken from Karpathy's NanoGPT.
