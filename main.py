@@ -3,6 +3,7 @@ import torch
 from torch.nn import functional as F
 import tiktoken
 import time
+import math
 
 
 class ShakeSpeareLoader:
@@ -30,6 +31,44 @@ class ShakeSpeareLoader:
             self.current_pos = 0
 
         return x, y
+
+
+MAX_LR = 6e-4
+MIN_LR = MAX_LR * 0.1
+WARMUP_STEPS = 10
+MAX_STEPS = 50
+
+
+def get_lr(step: int) -> float:
+    # warmup and after warmup regions
+    if step < WARMUP_STEPS:
+        return MAX_LR * (step + 1) / WARMUP_STEPS
+    elif step > WARMUP_STEPS:
+        return MIN_LR
+
+    # in between: decrease the LR
+    decay_ratio = (step - WARMUP_STEPS) / (MAX_STEPS - WARMUP_STEPS)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+    return MIN_LR + coeff * (MAX_LR - MIN_LR)
+
+
+def setup_optimizer(model: GPT) -> torch.optim.AdamW:
+    params = [p for p in model.parameters() if p.requires_grad]
+    decay_params = [p for p in params if p.dim() >= 2]
+    no_decay_params = [p for p in params if p.dim() < 2]
+
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": decay_params, "weight_decay": 0.1},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ],
+        lr=3e-4,
+        betas=(0.9, 0.95),
+        eps=1e-8,
+        fused=True,
+    )
+    return optimizer
 
 
 def inference(
@@ -101,7 +140,7 @@ def main() -> None:
     print("Compiling GPT-2...")
     model = torch.compile(model)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
+    optimizer = setup_optimizer(model)
 
     steps = 100
     for step in range(steps):
@@ -121,13 +160,19 @@ def main() -> None:
         loss.backward()
         # avoid shock from high gradients through clipping
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
 
+        lr = get_lr(step)
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = lr
+
+        optimizer.step()
         torch.cuda.synchronize()
         backward_time = time.time()
 
         train_time = backward_time - start_time
-        print(f"step: {step:04d} | loss: {loss.item():.6f} | norm: {norm:.4f} | time: {1000*train_time:.4f}ms")
+        print(
+            f"step: {step:04d} | loss: {loss.item():.6f} | norm: {norm:.4f} | time: {1000 * train_time:.4f}ms"
+        )
 
 
 if __name__ == "__main__":
