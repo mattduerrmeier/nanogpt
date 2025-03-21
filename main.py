@@ -129,7 +129,12 @@ def main() -> None:
         torch.cuda.manual_seed(seed)
 
     # For final version: B = 16, T = 1024
-    train_loader = ShakeSpeareLoader(B=4, T=512)
+    # GPT-3 uses a batch size of 488: we do so with gradient accumulation
+    total_batch_size = 52488
+    B = 64
+    T = 1024
+    accumulate_steps = total_batch_size // (B * T)
+    train_loader = ShakeSpeareLoader(B=B, T=T)
 
     # torch.set_float32_matmul_precision("high") #TF32 setting
     # load the model
@@ -145,19 +150,28 @@ def main() -> None:
     steps = 100
     for step in range(steps):
         start_time = time.time()
-        # Forward Pass
-        x, y = train_loader.next_batch()
-        x, y = x.to(device), y.to(device)
 
-        # use autocast to use bfloat16 for fwd
-        # with torch.autocast(device_type=device, dtype=torch.bfloat16):
-        out = model(x)
+        loss_acc = 0.0
+        for micro_batch in range(accumulate_steps):
+            # Forward Pass
+            x, y = train_loader.next_batch()
+            x, y = x.to(device), y.to(device)
 
-        # Backward Pass
-        optimizer.zero_grad()
-        # (N=B*T, Vocab size (# classes)) vs target (N,)
-        loss = F.cross_entropy(out.view(-1, out.size(-1)), y.flatten())
-        loss.backward()
+            # use autocast to use bfloat16 for fwd
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                out = model(x)
+                torch.cuda.synchronize()
+                forward_time = time.time()
+
+                # Backward Pass
+                optimizer.zero_grad()
+                # (N=B*T, Vocab size (# classes)) vs target (N,)
+                loss = F.cross_entropy(out.view(-1, out.size(-1)), y.flatten())
+
+            loss = loss / accumulate_steps
+            loss_acc += loss.detach()
+            loss.backward()
+
         # avoid shock from high gradients through clipping
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
@@ -173,6 +187,8 @@ def main() -> None:
         print(
             f"step: {step:04d} | loss: {loss.item():.6f} | norm: {norm:.4f} | time: {1000 * train_time:.4f}ms"
         )
+        print(f"Forward pass time:\t{1000 * (forward_time - start_time):.4f}ms")
+        print(f"Backward pass time:\t{1000 * (backward_time - forward_time):.4f}ms")
 
 
 if __name__ == "__main__":
