@@ -4,34 +4,7 @@ from torch.nn import functional as F
 import tiktoken
 import time
 import math
-
-
-class ShakeSpeareLoader:
-    # TODO: as a custom dataset instead?
-    def __init__(self, B, T):
-        # data preparation
-        self.B = B
-        self.T = T
-
-        with open("input.txt", "r") as f:
-            text = f.read()
-
-        enc = tiktoken.get_encoding("gpt2")
-        tokens = enc.encode(text)
-        self.tokens = torch.tensor(tokens)
-        self.current_pos = 0
-
-    def next_batch(self):
-        buf = self.tokens[self.current_pos : self.current_pos + self.B * self.T + 1]
-        x = buf[:-1].view(self.B, self.T)
-        y = buf[1:].view(self.B, self.T)
-
-        self.current_pos += self.B * self.T
-        if self.current_pos + (self.B * self.T + 1) > len(self.tokens):
-            self.current_pos = 0
-
-        return x, y
-
+from dataset import TinyStories
 
 MAX_LR = 6e-4
 MIN_LR = MAX_LR * 0.1
@@ -134,7 +107,8 @@ def main() -> None:
     B = 64
     T = 1024
     accumulate_steps = total_batch_size // (B * T)
-    train_loader = ShakeSpeareLoader(B=B, T=T)
+    train_loader = TinyStories(B=B, T=T, split="train")
+    test_loader = TinyStories(B=B, T=T, split="val")
 
     # torch.set_float32_matmul_precision("high") #TF32 setting
     # load the model
